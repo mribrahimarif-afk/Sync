@@ -2,6 +2,7 @@ import {
   isHealthResponse,
   isPublicErrorResponse,
   REQUEST_ID_HEADER,
+  REQUEST_ID_PATTERN,
   type HealthResponse,
 } from '@sync/contracts';
 
@@ -18,7 +19,6 @@ export interface FetchHealthOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 8000;
-const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
 function failed(message: string, requestId?: string): HealthResult {
   return { ok: false, reason: 'failed', message, ...(requestId ? { requestId } : {}) };
@@ -48,7 +48,7 @@ export async function fetchHealth({
       cache: 'no-store',
     });
     const headerId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
-    const headerRequestId = headerId && SAFE_REQUEST_ID.test(headerId) ? headerId : undefined;
+    const headerRequestId = headerId && REQUEST_ID_PATTERN.test(headerId) ? headerId : undefined;
 
     let body: unknown;
     try {

@@ -68,10 +68,12 @@ function send(
   return reply.status(status).header(REQUEST_ID_HEADER, request.id).send(body);
 }
 
-/** Every failure leaves the API as a `PublicErrorResponse`; internal details are logged only. */
-export function registerErrorHandling(app: FastifyInstance): void {
-  app.setNotFoundHandler((request, reply) => send(reply, request, 404, 'NOT_FOUND'));
-
+/**
+ * Every failure leaves the API as a `PublicErrorResponse`; internal details are logged only.
+ * Must be called BEFORE registering plugins: routes capture the error handler when they are
+ * defined, so a plugin route (e.g. the CORS preflight) defined earlier would keep Fastify's default.
+ */
+export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error: FastifyError, request, reply) => {
     const status =
       Number.isInteger(error.statusCode) && error.statusCode! >= 400 && error.statusCode! <= 599
@@ -93,4 +95,14 @@ export function registerErrorHandling(app: FastifyInstance): void {
       details,
     );
   });
+}
+
+/**
+ * Unknown paths answer with the public 404 body and count against the rate limit, so scanning
+ * for routes is bounded. Requires the rate-limit plugin to be registered first.
+ */
+export function registerNotFoundHandler(app: FastifyInstance): void {
+  app.setNotFoundHandler({ preHandler: app.rateLimit() }, (request, reply) =>
+    send(reply, request, 404, 'NOT_FOUND'),
+  );
 }

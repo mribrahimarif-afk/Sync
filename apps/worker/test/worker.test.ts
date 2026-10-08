@@ -66,6 +66,24 @@ describe('worker lifecycle', () => {
 });
 
 describe('worker logging', () => {
+  it('keeps credentials in error objects and deep fields out of logs', () => {
+    const logs = capture();
+    const logger = createLogger({ logLevel: 'info' }, logs.stream);
+    const err = Object.assign(new Error('job failed: password=pw-secret Bearer bearer-secret'), {
+      context: {
+        headers: { authorization: 'Bearer ctx-secret' },
+        body: { password: 'body-secret' },
+      },
+    });
+
+    logger.error({ err, a: { b: { token: 'deep-secret' } }, jobId: 'job-7' }, 'job error');
+
+    expect(logs.text()).not.toMatch(/pw-secret|bearer-secret|ctx-secret|body-secret|deep-secret/);
+    const [record] = logs.records();
+    expect(record).toMatchObject({ jobId: 'job-7', err: { type: 'Error' } });
+    expect(record.err.message).toContain('job failed');
+  });
+
   it('emits structured JSON and redacts secrets', () => {
     const logs = capture();
     const logger = createLogger({ logLevel: 'info' }, logs.stream);

@@ -110,6 +110,84 @@ describe('logging', () => {
   });
 });
 
+describe('credential safety of failure logs', () => {
+  const SECRETS = [
+    'ctx-auth-secret',
+    'ctx-cookie-secret',
+    'ctx-body-password',
+    'msg-password-secret',
+    'msg-bearer-secret',
+    'cause-token-secret',
+    'url-credential-secret',
+    'deep-secret-value',
+  ];
+
+  function failure(): Error {
+    const cause = Object.assign(new Error('upstream said token=cause-token-secret'), {
+      config: { headers: { authorization: 'Bearer ctx-auth-secret' } },
+    });
+    return Object.assign(
+      new Error(
+        'login failed: password=msg-password-secret, header Authorization: Bearer msg-bearer-secret, ' +
+          'url postgres://svc:url-credential-secret@db.internal/app',
+        { cause },
+      ),
+      {
+        code: 'E_LOGIN',
+        context: {
+          headers: { authorization: 'Bearer ctx-auth-secret', cookie: 'sid=ctx-cookie-secret' },
+          body: { password: 'ctx-body-password' },
+          nested: { a: { b: { secret: 'deep-secret-value' } } },
+        },
+      },
+    );
+  }
+
+  it('keeps credentials out of unexpected-error logs but keeps safe diagnostics', async () => {
+    const logs = captureLogs();
+    app = await createTestApp({
+      logs,
+      routes: (instance) => {
+        instance.get('/test/boom', async () => {
+          throw failure();
+        });
+      },
+    });
+
+    const response = await app.inject({ url: '/test/boom' });
+
+    const text = logs.text();
+    for (const secret of SECRETS) expect(text).not.toContain(secret);
+    expect(response.body).not.toMatch(/secret|password/i);
+    const record = logs.records().find((r) => r.msg === 'Unhandled request error');
+    expect(record).toMatchObject({
+      reqId: response.json().error.requestId,
+      err: { type: 'Error', code: 'E_LOGIN' },
+    });
+    expect((record!.err as { stack: string }).stack).toMatch(/at /);
+    expect((record!.err as { message: string }).message).toContain('login failed');
+  });
+
+  it('redacts credentials nested several levels deep in ordinary log calls', async () => {
+    const logs = captureLogs();
+    app = await createTestApp({ logs });
+
+    app.log.info({ a: { b: { password: 'deep-secret-value' } }, safe: 'kept' }, 'nested');
+
+    expect(logs.text()).not.toContain('deep-secret-value');
+    expect(logs.text()).toContain('kept');
+  });
+
+  it('sanitizes errors logged through app.log with the err key', async () => {
+    const logs = captureLogs();
+    app = await createTestApp({ logs });
+
+    app.log.error({ err: failure() }, 'manual');
+
+    for (const secret of SECRETS) expect(logs.text()).not.toContain(secret);
+  });
+});
+
 describe('client address handling', () => {
   const routes = (instance: FastifyInstance) => {
     instance.get('/test/ip', async (request) => ({ ip: request.ip }));

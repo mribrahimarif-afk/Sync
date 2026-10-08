@@ -21,8 +21,8 @@
 - `apps/api` - `buildApp()` creates the Fastify instance without listening (so tests never bind a port); `main.ts` handles configuration, listening, signals and exit codes. One route: `GET /api/health`, which reports only that the process is serving requests. It does not probe, and so does not claim, any database, queue or provider.
   - **Error contract:** every failure (unknown route, malformed or invalid input, oversized body, rate limit, unexpected exception) is returned as `{ error: { code, message, requestId, details? } }` with the correct HTTP status. Unexpected errors return a generic message; causes are logged server-side only.
   - **Request IDs:** a UUID is generated, or an incoming `X-Request-Id` is accepted only if it is 8-64 safe characters; it is returned in the header and error body and bound to every log line.
-  - **Logging:** structured JSON; request logs hold method, path (query string removed) and client address only; credentials-like keys are redacted; bodies are not logged.
-  - **HTTP baseline:** Helmet headers, `Cache-Control: no-store`, explicit CORS allowlist (wildcards rejected), body-size limit, per-client rate limit, and forwarded headers ignored unless `TRUSTED_PROXIES` is set.
+  - **Logging:** structured JSON; request logs hold method, path (query string removed) and client address only; bodies are not logged. Credential-like keys are redacted up to three levels deep, and errors are logged through an allowlist serializer (`safe-error.ts`): type, safe code/status, scrubbed message, stack frames and a bounded cause chain. Arbitrary error properties (`context`, `config`, attached requests) are never copied. Text scrubbing is best-effort pattern matching on message/stack/cause strings, so secrets should still never be placed in error messages.
+  - **HTTP baseline:** Helmet headers, `Cache-Control: no-store`, explicit CORS allowlist (wildcards rejected; malformed preflights are rejected through the public error contract), body-size limit, per-client rate limit covering API routes, preflights and unknown paths, and forwarded headers ignored unless `TRUSTED_PROXIES` is set.
 - `apps/worker` - validated config, structured logging, signal handling and clean exit. It states at startup that durable job processing is not implemented, and connects to nothing.
 - `apps/web` - one status page that calls the API once, shows loading / reachable / unavailable (with request ID when available), and only retries when the user asks. In-flight requests are aborted on unmount, retry and target change; late results cannot overwrite newer state.
 - `packages/contracts` - the health and public-error types plus runtime type guards, with no dependencies. It is compiled to `dist` and consumed through that output in development, tests and production alike, so all environments resolve it identically.
@@ -31,7 +31,7 @@
 
 - **Contracts are compiled, not aliased from source.** One resolution path everywhere avoids dev/prod drift; the cost is building contracts first, which root scripts do.
 - **Type guards instead of a validation library in contracts** keep the package dependency-free and the browser bundle small. Reconsider if contracts grow.
-- **Custom dev runner (`scripts/dev.mjs`)** instead of a process-manager dependency, because reliable whole-tree cleanup on Windows needed `taskkill /T`.
+- **Custom dev runner (`scripts/dev.mjs` on top of `scripts/supervisor.mjs`)** instead of a process-manager dependency. The supervisor keeps ownership of each service's process group (POSIX) or reconstructed process tree (Windows) even after the service's parent exits, and finishes only when the trees are gone. It has its own tests (`node --test`, part of `npm test`).
 - **Redaction lists are duplicated** in API and worker rather than introducing a shared runtime package for ~10 lines.
 
 ## Target architecture (planned, not implemented)

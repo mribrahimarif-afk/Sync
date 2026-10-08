@@ -167,6 +167,49 @@ describe('public error contract', () => {
     expect(last.headers['x-request-id']).toBe(last.json().error.requestId);
   });
 
+  it('rate-limits unknown paths too, and forwarded headers cannot reset the budget', async () => {
+    app = await createTestApp({ config: { rateLimit: { max: 2, windowSeconds: 60 } } });
+    const statuses: number[] = [];
+    let last;
+    for (let i = 0; i < 5; i += 1) {
+      last = await app.inject({
+        url: `/scan/path-${i}`,
+        headers: { 'x-forwarded-for': `203.0.113.${i}` },
+      });
+      statuses.push(last.statusCode);
+    }
+    expect(statuses).toEqual([404, 404, 429, 429, 429]);
+    expect(isPublicErrorResponse(last!.json())).toBe(true);
+    expect(last!.json().error.code).toBe('RATE_LIMITED');
+    expect(last!.headers['x-request-id']).toBe(last!.json().error.requestId);
+  });
+
+  it('answers malformed CORS preflights with the public error contract', async () => {
+    app = await createTestApp();
+    const withOrigin = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/health',
+      headers: { origin: 'https://app.example.test', 'x-request-id': 'preflight-trace-001' },
+    });
+    expect(withOrigin.statusCode).toBe(400);
+    expect(withOrigin.headers['content-type']).toMatch(/application\/json/);
+    expect(isPublicErrorResponse(withOrigin.json())).toBe(true);
+    expect(withOrigin.json().error).toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'The request was malformed.',
+      requestId: 'preflight-trace-001',
+    });
+    expect(withOrigin.headers['x-request-id']).toBe('preflight-trace-001');
+
+    const withoutOrigin = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/health',
+      headers: { 'access-control-request-method': 'GET' },
+    });
+    expect(withoutOrigin.statusCode).toBe(400);
+    expect(isPublicErrorResponse(withoutOrigin.json())).toBe(true);
+  });
+
   it('does not ship test-only routes in the production application', async () => {
     app = await createTestApp();
     for (const url of ['/test/boom', '/test/echo']) {

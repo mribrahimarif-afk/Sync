@@ -19,6 +19,8 @@ describe('isHealthResponse', () => {
     ['a different service', { ...validHealth, service: 'other' }],
     ['a non-ok status', { ...validHealth, status: 'degraded' }],
     ['an unparseable time', { ...validHealth, time: 'yesterday' }],
+    ['a numeric-looking time', { ...validHealth, time: '0' }],
+    ['a non-UTC time', { ...validHealth, time: '2026-10-08T10:00:00+05:00' }],
     ['a negative uptime', { ...validHealth, uptimeSeconds: -1 }],
     ['a non-finite uptime', { ...validHealth, uptimeSeconds: Infinity }],
     ['a missing field', { service: 'sync-api', status: 'ok' }],
@@ -47,6 +49,7 @@ describe('isPublicErrorResponse', () => {
     ['a missing envelope', base],
     ['an unknown code', { error: { ...base, code: 'EXPLODED' } }],
     ['a missing request ID', { error: { code: 'NOT_FOUND', message: 'x' } }],
+    ['a markup request ID', { error: { ...base, requestId: '<script>' } }],
     ['malformed details', { error: { ...base, details: [{ path: 1 }] } }],
   ])('rejects %s', (_label, value) => {
     expect(isPublicErrorResponse(value)).toBe(false);

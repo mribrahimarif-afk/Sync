@@ -4,7 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { REQUEST_ID_HEADER } from '@sync/contracts';
 import type { ApiConfig } from './config.js';
-import { registerErrorHandling } from './errors.js';
+import { registerErrorHandler, registerNotFoundHandler } from './errors.js';
 import { buildLoggerOptions } from './logger.js';
 import { resolveRequestId } from './request-id.js';
 import { registerHealthRoute } from './routes/health.js';
@@ -36,17 +36,32 @@ export async function buildApp({ config, logStream }: BuildAppOptions): Promise<
     reply.header('cache-control', 'no-store');
   });
 
-  registerErrorHandling(app);
+  registerErrorHandler(app);
 
   await app.register(helmet);
-  await app.register(cors, {
-    origin: config.corsAllowedOrigins,
-    exposedHeaders: [REQUEST_ID_HEADER],
-  });
+  // Rate limiting is registered before CORS so that preflight requests are counted too.
   await app.register(rateLimit, {
     max: config.rateLimit.max,
     timeWindow: config.rateLimit.windowSeconds * 1000,
   });
+
+  // @fastify/cors answers malformed preflights itself with a plain-text 400, bypassing the
+  // public error contract. Reject them here first (same strictness) so they use the shared handler.
+  app.addHook('onRequest', async (request) => {
+    if (
+      request.method === 'OPTIONS' &&
+      (!request.headers.origin || !request.headers['access-control-request-method'])
+    ) {
+      throw Object.assign(new Error('Invalid preflight request'), { statusCode: 400 });
+    }
+  });
+
+  await app.register(cors, {
+    origin: config.corsAllowedOrigins,
+    exposedHeaders: [REQUEST_ID_HEADER],
+  });
+
+  registerNotFoundHandler(app);
 
   registerHealthRoute(app);
 

@@ -52,7 +52,7 @@ Only safe example values are committed; real `.env*` files are git-ignored. Inva
 | `npm run dev:worker` | Worker (logs that job processing is not implemented) |
 | `npm run dev`        | All three, with prefixed logs                        |
 
-`npm run dev` stops everything together on Ctrl+C, SIGTERM, or when any service dies, killing each service's whole process tree (including on Windows) so no orphan keeps a port bound.
+`npm run dev` stops everything together on Ctrl+C, SIGTERM, or when any service dies, killing each service's whole process tree (including descendants that outlive their parent, and on Windows) so no orphan keeps a port bound.
 
 The shared contracts are consumed from their compiled output, so every root command builds `@sync/contracts` first. If you edit `packages/contracts`, run `npm run build:contracts` (and restart the dev servers).
 
@@ -66,7 +66,7 @@ Run these from the repository root (CI runs the same commands):
 npm run format:check   # Prettier
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit in every workspace (strict)
-npm test               # Vitest in every workspace
+npm test               # Vitest in every workspace + dev-runner cleanup tests (node --test)
 npm run build          # production builds of contracts, API, worker, web
 npm run smoke          # starts the compiled API and worker, checks health, config failure, termination
 npm run validate       # all of the above, in order
