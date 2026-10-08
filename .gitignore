@@ -8,3 +8,6 @@ coverage/
 !.env.example
 *.log
 .DS_Store
+next-env.d.ts
+# Written by `next dev` (agent-instructions boilerplate); not source
+apps/web/AGENTS.md
